@@ -547,6 +547,25 @@ declare class Session {
     ...opts: T extends SurfaceEventType ? [opts: SurfaceIntent<T>] : []
   ): SessionEvent<T>;
   /**
+   * Append one downstream informational event that readers may safely skip when they do not recognize its type.
+   * The event type must be contributed through `SessionEventMap` declaration
+   * merging and must remain unknown to this Harness build; known event types use
+   * {@link append} so the owning producer cannot weaken their replay contract.
+   * Ignorable events are always log-only and cannot affect the conversation
+   * surface or derived model history.
+   * @param type - downstream event type absent from this build's known-event catalog.
+   * @param data - losslessly JSON-serializable event payload.
+   * @returns the committed event with `ignorable: true` in its durable envelope.
+   * @throws when `type` is not a string or is known to this build, `data` is not losslessly JSON-serializable,
+   *   or append acceptance/publication fails.
+   */
+  appendIgnorable<
+    T extends Exclude<Extract<SessionEventType, string>, KnownSessionEventType>,
+  >(
+    type: T,
+    data: SessionEventMap[T],
+  ): SessionEvent<T> & { readonly ignorable: true };
+  /**
    * The {@link EpochHeader} in force after the log's last header event — the
    * header the NEXT request will be compared against — or undefined before
    * the first `request/header` snapshot. The live, incrementally-maintained

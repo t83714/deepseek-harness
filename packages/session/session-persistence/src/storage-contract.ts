@@ -7,7 +7,7 @@
 
 import {
   adoptSessionEvent,
-  KNOWN_SESSION_EVENT_TYPES,
+  isKnownSessionEventType,
   SESSION_FORMAT_VERSION,
 } from '@deepseek-ai/dsh-session'
 import { snapshotJsonValue } from '@deepseek-ai/dsh-util-values'
@@ -72,7 +72,7 @@ export function validateStoredEvents(
   location?: SessionLocation,
 ): SessionEvent[] {
   for (const event of events) {
-    if (!KNOWN_SESSION_EVENT_TYPES.has(event.type) && event.ignorable !== true) {
+    if (!isKnownSessionEventType(event.type) && event.ignorable !== true) {
       throw unsupported(
         `session "${meta.id}" contains event type "${event.type}" (seq ${event.seq}) unknown to this harness and not marked ignorable; refusing to interpret the log — it was likely written by a newer harness`,
         location,

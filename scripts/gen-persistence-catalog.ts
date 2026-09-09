@@ -393,8 +393,8 @@ export function render(events: AnnotatedLogEventEntry[], envelopeTypes: EventEnv
 
 /**
  * Render the runtime known-vocabulary module: every event type the packages in
- * this repo can write, as a generated `ReadonlySet` the read path checks
- * unknown-type refusal against (`SessionEvent.ignorable` contract).
+ * this repo can write, as an immutable ReadonlySet view and predicate backed by
+ * a module-private Set (`SessionEvent.ignorable` contract).
  */
 export function renderKnownEventTypes(events: AnnotatedLogEventEntry[]): string {
   const names = [...new Set(events.map(e => e.name))].sort()
@@ -420,9 +420,37 @@ export function renderKnownEventTypes(events: AnnotatedLogEventEntry[]): string 
     ' * composition-dependent. The rationale is in',
     ' * `.agents/notes/implemented/architecture/2026-08-30-retain-ignorable-external-session-events.md`.',
     ' */',
-    'export const KNOWN_SESSION_EVENT_TYPES: ReadonlySet<string> = new Set([',
+    'const knownSessionEventTypeValues = Object.freeze([',
     ...names.map(name => `  '${name}',`),
-    '])',
+    '] as const)',
+    '',
+    '/** One event type understood by this Harness build. */',
+    'export type KnownSessionEventType =',
+    ...names.map(name => `  | '${name}'`),
+    '',
+    'const knownSessionEventTypeSet: ReadonlySet<KnownSessionEventType> = new Set(knownSessionEventTypeValues)',
+    'const knownSessionEventTypes: ReadonlySet<KnownSessionEventType> = {',
+    '  get size() { return knownSessionEventTypeSet.size },',
+    '  has(value) { return knownSessionEventTypeSet.has(value) },',
+    '  entries() { return knownSessionEventTypeSet.entries() },',
+    '  keys() { return knownSessionEventTypeSet.keys() },',
+    '  values() { return knownSessionEventTypeSet.values() },',
+    '  [Symbol.iterator]() { return knownSessionEventTypeSet[Symbol.iterator]() },',
+    '  forEach(callback, thisArg) {',
+    '    for (const value of knownSessionEventTypeSet) callback.call(thisArg, value, value, knownSessionEventTypes)',
+    '  },',
+    '}',
+    '',
+    '/** Immutable view of every event type understood by this Harness build. */',
+    'export const KNOWN_SESSION_EVENT_TYPES: ReadonlySet<string> = Object.freeze(knownSessionEventTypes)',
+    '',
+    '/** Whether this Harness build understands one event type.',
+    ' * @param type - event type to classify.',
+    ' * @returns true when the type belongs to the generated in-repository vocabulary.',
+    ' */',
+    'export function isKnownSessionEventType(type: string): boolean {',
+    '  return knownSessionEventTypeSet.has(type as KnownSessionEventType)',
+    '}',
     '',
   ].join('\n')
 }

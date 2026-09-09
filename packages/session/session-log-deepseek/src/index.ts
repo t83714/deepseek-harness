@@ -9,7 +9,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { brandString } from '@deepseek-ai/dsh-brand'
 import type {} from '@deepseek-ai/dsh-deepseek-llm-api-extensions'
-import { KNOWN_SESSION_EVENT_TYPES, SessionLogOffset, SessionSeq } from '@deepseek-ai/dsh-session'
+import { isKnownSessionEventType, SessionLogOffset, SessionSeq } from '@deepseek-ai/dsh-session'
 import type {
   Session,
   SessionEvent,
@@ -90,7 +90,7 @@ function wireEvent(event: SessionEvent): DeepSeekSessionLogWireEvent {
       return { ...common, type: event.type, surfaceOp: wireSurfaceOp(event.surfaceOp) }
     default: {
       // Restored unknown ignorable records are opaque, not current surface events.
-      if (!KNOWN_SESSION_EVENT_TYPES.has(event.type) && event.ignorable === true) {
+      if (!isKnownSessionEventType(event.type) && event.ignorable === true) {
         const opaque = event as { surfaceOp?: JsonValue; sourceEventSeqs?: JsonValue }
         return {
           ...common, type: event.type, ignorable: true,
