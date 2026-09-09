@@ -10,7 +10,7 @@
 
 import type { Message } from '@deepseek-ai/dsh-llm'
 import { SessionLogOffset, SessionSeq } from './types.ts'
-import { KNOWN_SESSION_EVENT_TYPES } from './known-event-types.ts'
+import { isKnownSessionEventType } from './known-event-types.ts'
 import type {
   SessionEvent,
   SessionSeqCursor,
@@ -242,7 +242,7 @@ function surfaceOpOf(event: SessionEvent): SurfaceOp | undefined {
   const raw: { surfaceOp?: unknown; sourceEventSeqs?: unknown } = event
   if (!isSurfaceEligibleType(event.type)) {
     // Unknown ignorable records retain opaque metadata without affecting history.
-    if (!KNOWN_SESSION_EVENT_TYPES.has(event.type) && event.ignorable === true) return
+    if (!isKnownSessionEventType(event.type) && event.ignorable === true) return
     if (raw.surfaceOp !== undefined) {
       throw new Error(`session event "${event.type}" is not surface-eligible and cannot carry surfaceOp`)
     }

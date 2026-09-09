@@ -1,5 +1,5 @@
 import { Context } from '@deepseek-ai/cordis'
-import { SessionId, SessionSeq } from '@deepseek-ai/dsh-session'
+import { Session, SessionId, SessionSeq } from '@deepseek-ai/dsh-session'
 import { SessionFormatUnsupportedError } from '@deepseek-ai/dsh-session-persistence'
 import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
@@ -13,6 +13,12 @@ const header = { type: 'session', version: 3, id, createdAt: 1000, isSeeded: fal
 const start = { type: 'turn/start', seq: 0, time: 1, data: { turn: 1 } }
 const prefix = [header, start].map(row => JSON.stringify(row)).join('\n') + '\n'
 const obsoleteTypes = ['tool/code-dispatch-start', 'tool/code-dispatch'] as const
+
+declare module '@deepseek-ai/dsh-session/types' {
+  interface SessionEventMap {
+    'test/informational': { nested: { retained: boolean } }
+  }
+}
 
 function obsoleteEvent(type: string, ignorable?: true) {
   return {
@@ -106,6 +112,35 @@ describe('native V3 event admission at EOF', () => {
       await expect(opened).rejects.toThrow('system/message data must be an object')
       expect(await readFile(path)).toEqual(bytes)
       expect(await stat(path)).toMatchObject({ dev: sourceStat.dev, ino: sourceStat.ino })
+    }
+  })
+
+  it('reopens an informational event written through Session.appendIgnorable', async () => {
+    const session = Session.create(id)
+    const event = session.appendIgnorable('test/informational', { nested: { retained: true } })
+    const writer = await ctx.sessionPersistence.create(session.header)
+    try {
+      await writer.append(session.snapshotEvents())
+    } finally {
+      await writer.close()
+    }
+
+    const reader = await ctx.sessionPersistence.open(id, 'read')
+    try {
+      const stored = await reader.read()
+      const restored = Session.fromRestore(
+        id,
+        stored.events,
+        reader.header,
+        reader.inheritedEventCount,
+        stored.eventState,
+      )
+      expect(stored.events).toEqual([event])
+      expect(restored.eventAt(SessionSeq(0))).toEqual(event)
+      expect(restored.snapshotEvents().at(-1)?.type).toBe('session/end-seed')
+      expect(restored.deriveMessages()).toEqual([])
+    } finally {
+      await reader.close()
     }
   })
 

@@ -3,6 +3,8 @@ import { Context } from '@deepseek-ai/cordis'
 import { createSystemMessage, createUserMessage, ToolCallId, createMessage, createToolResultMessage, MessageId, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import SessionStore, {
   adoptSessionEvent,
+  isKnownSessionEventType,
+  KNOWN_SESSION_EVENT_TYPES,
   SESSION_FORMAT_VERSION,
   Session,
   SessionEvent,
@@ -12,6 +14,12 @@ import SessionStore, {
   snapshotSessionEvent,
 } from '@deepseek-ai/dsh-session'
 import type { CreateSessionOptions, SessionEventType, SessionHeader, SessionSurface } from '@deepseek-ai/dsh-session'
+
+declare module '@deepseek-ai/dsh-session/types' {
+  interface SessionEventMap {
+    'test/informational': { nested: { retained: boolean } }
+  }
+}
 
 describe('Session', () => {
   it('exposes one stable readonly surface view', () => {
@@ -906,6 +914,58 @@ describe('Session', () => {
     expect((logged.data as Record<string, unknown>)['injected']).toBeUndefined()
     // The returned event carries the same snapshot, not the caller's input.
     expect((event.data.content[0] as { text: string }).text).toBe('original')
+  })
+
+  it('exposes immutable known-event values without exposing the classification Set', () => {
+    type IgnorableEventType = Parameters<Session['appendIgnorable']>[0]
+    expectTypeOf<'test/informational'>().toExtend<IgnorableEventType>()
+    expectTypeOf<'turn/start'>().not.toExtend<IgnorableEventType>()
+    expectTypeOf<42>().not.toExtend<IgnorableEventType>()
+    expect(Object.isFrozen(KNOWN_SESSION_EVENT_TYPES)).toBe(true)
+    expect(isKnownSessionEventType('turn/start')).toBe(true)
+    expect(isKnownSessionEventType('test/informational')).toBe(false)
+    expect(() => (KNOWN_SESSION_EVENT_TYPES as unknown as string[]).pop()).toThrow()
+    expect(isKnownSessionEventType('turn/start')).toBe(true)
+  })
+
+  it('appends downstream informational events with a durable ignorable envelope', () => {
+    const session = Session.create(SessionId('append-ignorable'))
+    const data = { nested: { retained: true } }
+
+    const event = session.appendIgnorable('test/informational', data)
+    data.nested.retained = false
+
+    expect(event).toEqual({
+      type: 'test/informational',
+      seq: SessionSeq(0),
+      time: event.time,
+      data: { nested: { retained: true } },
+      ignorable: true,
+    })
+    expect(event.ignorable).toBe(true)
+    expect(Object.isFrozen(event)).toBe(true)
+    expect(Object.isFrozen(event.data.nested)).toBe(true)
+    expect(session.snapshotEvents()).toEqual([event])
+    expect(session.surface.nodes).toEqual([])
+    expect(session.deriveMessages()).toEqual([])
+    expect(() => Session.create(SessionId('append-ignorable-replay'), structuredClone(session.snapshotEvents())))
+      .not.toThrow()
+  })
+
+  it('rejects known and non-string event types and non-JSON data through appendIgnorable', () => {
+    const session = Session.create(SessionId('append-ignorable-rejection'))
+    const appendUntyped = session.appendIgnorable.bind(session) as unknown as
+      (type: unknown, data: unknown) => unknown
+
+    expect(() => appendUntyped('turn/start', { turn: 1 }))
+      .toThrow('known session event "turn/start" cannot be appended as ignorable')
+    expect(() => appendUntyped(42, { value: 'numeric' }))
+      .toThrow('ignorable session event type must be a string')
+    expect(() => session.appendIgnorable(
+      'test/informational',
+      { nested: { retained: 1n } } as never,
+    )).toThrow(/non-JSON-serializable data/)
+    expect(session.snapshotEvents()).toEqual([])
   })
 
   it('reads a nested append-data getter once and stores its first JSON value', () => {

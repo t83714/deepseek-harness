@@ -19,6 +19,7 @@ import type { CreateSessionOptions, EpochHeader, PrepareSessionOptions, RequestC
 import { deriveEventMessage, SurfaceManager, validateSessionEventData, validateSurfaceMetadata } from './surface.ts'
 import type { SessionSurface } from './surface.ts'
 import { foldRequestHeader } from './request-header.ts'
+import { isKnownSessionEventType, type KnownSessionEventType } from './known-event-types.ts'
 
 export * from './types.ts'
 export { SessionPreparation } from './preparation.ts'
@@ -28,7 +29,7 @@ export { interruptedTurnClosers, TOOL_NOT_STARTED, TOOL_OUTCOME_UNKNOWN } from '
 export type { SessionSurface, SurfaceFoldReplacement, SurfaceFoldResult } from './surface.ts'
 export { deriveEventMessage, foldSurface, isAppendSurfaceEvent, isReplacementSurfaceEvent, isSurfaceEvent, isSurfaceEligibleType } from './surface.ts'
 export { canonicalHeader, foldRequestHeader, headerEquals } from './request-header.ts'
-export { KNOWN_SESSION_EVENT_TYPES } from './known-event-types.ts'
+export { KNOWN_SESSION_EVENT_TYPES, isKnownSessionEventType, type KnownSessionEventType } from './known-event-types.ts'
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -706,17 +707,55 @@ export class Session {
     ...opts: T extends SurfaceEventType ? [opts: SurfaceIntent<T>] : []
   ): SessionEvent<T> {
     const surfaceOpts: SurfaceIntent | undefined = opts[0]
-    const surfaceMetadata = {
+    return this.appendEvent(type, data, {
       ...surfaceOpts?.sourceEventSeqs === undefined ? {} : { sourceEventSeqs: surfaceOpts.sourceEventSeqs },
       ...surfaceOpts?.surfaceOp === undefined ? {} : { surfaceOp: surfaceOpts.surfaceOp },
+    }, 'surface metadata')
+  }
+
+  /**
+   * Append one downstream informational event that readers may safely skip when they do not recognize its type.
+   * The event type must be contributed through `SessionEventMap` declaration
+   * merging and must remain unknown to this Harness build; known event types use
+   * {@link append} so the owning producer cannot weaken their replay contract.
+   * Ignorable events are always log-only and cannot affect the conversation
+   * surface or derived model history.
+   * @param type - downstream event type absent from this build's known-event catalog.
+   * @param data - losslessly JSON-serializable event payload.
+   * @returns the committed event with `ignorable: true` in its durable envelope.
+   * @throws when `type` is not a string or is known to this build, `data` is not losslessly JSON-serializable,
+   *   or append acceptance/publication fails.
+   */
+  appendIgnorable<
+    T extends Exclude<Extract<SessionEventType, string>, KnownSessionEventType>,
+  >(
+    type: T,
+    data: SessionEventMap[T],
+  ): SessionEvent<T> & { readonly ignorable: true } {
+    const runtimeType: unknown = type
+    if (typeof runtimeType !== 'string') {
+      throw new TypeError('ignorable session event type must be a string')
     }
+    if (isKnownSessionEventType(runtimeType)) {
+      throw new Error(`known session event "${runtimeType}" cannot be appended as ignorable`)
+    }
+    return this.appendEvent(type, data, { ignorable: true }, 'envelope metadata')
+  }
+
+  /** Snapshot, validate, commit, and publish one event through the shared append boundary. */
+  private appendEvent<T extends SessionEventType>(
+    type: T,
+    data: SessionEventMap[T],
+    envelopeMetadata: Record<string, unknown>,
+    metadataName: string,
+  ): SessionEvent<T> {
     const dataSnapshot = snapshotJsonValue(data)
     if (dataSnapshot === undefined) {
       throw new Error(`session event "${type}" carries non-JSON-serializable data`)
     }
-    const surfaceMetadataSnapshot = snapshotJsonValue(surfaceMetadata)
-    if (surfaceMetadataSnapshot === undefined) {
-      throw new Error(`session event "${type}" carries non-JSON-serializable surface metadata`)
+    const envelopeMetadataSnapshot = snapshotJsonValue(envelopeMetadata)
+    if (envelopeMetadataSnapshot === undefined) {
+      throw new Error(`session event "${type}" carries non-JSON-serializable ${metadataName}`)
     }
     const entry = attachments.get(this)
     if (entry?.appending) {
@@ -727,7 +766,7 @@ export class Session {
       seq: SessionSeq(this.log.length),
       time: Date.now(),
       data: dataSnapshot,
-      ...(surfaceMetadataSnapshot as { surfaceOp?: unknown; sourceEventSeqs?: unknown }),
+      ...envelopeMetadataSnapshot,
     } as unknown as SessionEvent<T>)
     validateSessionEventData(event, `session event "${type}" at seq ${event.seq}`)
     this.surfaceManager.validateNext(event as SessionEvent)
