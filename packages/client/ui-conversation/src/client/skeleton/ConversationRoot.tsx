@@ -345,8 +345,14 @@ export function ConversationRoot({
 
   const composerBar = (
     <div className={clsx(css.composerStack, hero && css.composerHero)}>
-      {hero && <HeroShell t={t} renderSlot={renderSlot} />}
-      {hero && heroWorkspaceRow}
+      {hero && renderSlot('conversation.hero', {}, {
+        fallback: (
+          <>
+            <HeroShell t={t} renderSlot={renderSlot} />
+            {heroWorkspaceRow}
+          </>
+        ),
+      })}
       {zone !== undefined && renderSlot('conversation.input.dock', zone)}
       {inputBar}
     </div>

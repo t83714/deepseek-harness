@@ -107,6 +107,31 @@ describe('resident composer', () => {
     await runtime.dispose()
   })
 
+  it('lets composition remove the complete generic Hero while preserving the resident input', async () => {
+    const runtime = await SlotTestRuntime.create()
+    runtime.ctx.provide('uiWorkspace', { connectWorkspace: vi.fn(async () => SID) } as never)
+    runtime.ctx.provide('settingsScope', { bind: () => stubSettingsScope().scope } as never)
+    const locale = new LocaleRuntime(runtime.ctx)
+    runtime.ctx.provide('locale', locale)
+    runtime.slots.installLocale(locale)
+    await runtime.root.declare(LAYOUT_CHILDREN, AppRoot)
+    await runtime.mount({ inject: [...inject], apply })
+    runtime.slots.register({ name: 'conversation.hero.workspace' }, WorkspaceProbe)
+    const disposeHero = runtime.slots.register({ name: 'conversation.hero' }, () => null)
+    const view = runtime.renderRoot()
+
+    expect(view.queryByRole('button', { name: '选择工作区' })).toBeNull()
+    expect(view.queryByTestId('workspace-probe')).toBeNull()
+    expect(view.container.querySelector('[data-composer-input]')).not.toBeNull()
+
+    act(() => { disposeHero() })
+    await waitFor(() => {
+      expect(view.getByRole('button', { name: '选择工作区' })).toBeTruthy()
+      expect(view.getByTestId('workspace-probe')).toBeTruthy()
+    })
+    await runtime.dispose()
+  })
+
   it('keeps the complete Hero tree mounted when the first Workspace session appears', async () => {
     const runtime = await SlotTestRuntime.create()
     runtime.ctx.provide('uiWorkspace', { connectWorkspace: vi.fn(async () => SID) } as never)
