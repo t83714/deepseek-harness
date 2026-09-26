@@ -109,6 +109,33 @@ describe('list store projection', () => {
     await Promise.resolve()
     expect(b.svc.list.getSnapshot().ids).toContain('s2')
   })
+
+  it('projects an initial soft list failure through the public list store', async () => {
+    const b = bench()
+    const failure = new RemoteError('gateway/internal', 'list unavailable', {})
+    b.api.onList = () => Promise.resolve(err(failure))
+
+    await b.svc.refresh()
+    await Promise.resolve()
+
+    expect(b.svc.list.getSnapshot()).toMatchObject({
+      ids: [], phase: 'pending', state: 'error', error: failure,
+    })
+  })
+
+  it('projects a later soft failure without discarding the last ready baseline', async () => {
+    const b = bench()
+    await feedList(b, [{ id: 's1' }])
+    const failure = new RemoteError('gateway/internal', 'list unavailable', {})
+    b.api.onList = () => Promise.resolve(err(failure))
+
+    await b.svc.refresh()
+    await Promise.resolve()
+
+    expect(b.svc.list.getSnapshot()).toMatchObject({
+      ids: ['s1'], phase: 'ready', state: 'error', error: failure,
+    })
+  })
 })
 
 describe('search', () => {

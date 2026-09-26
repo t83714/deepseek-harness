@@ -72,6 +72,10 @@ export interface SessionListState {
   /** Host rows plus the current addressed subagent route used by navigation. */
   byId: Record<SessionId, SessionSummary>
   current: SessionId | undefined
+  /** Current list-pull activity/failure state. ClientSessions always populates it; optional preserves structural fixture compatibility. */
+  state?: 'idle' | 'loading' | 'error'
+  /** Latest list-pull failure, or null outside the error state. ClientSessions always populates it. */
+  error?: RemoteFailure | null
   /** Arrival lifecycle projected 1:1 from the manager snapshot (see SessionListPhase): empty-with-ready means "truly no sessions". */
   phase: SessionListPhase
   /** Direct durable catalogs keyed by their selected parent address. */
@@ -232,7 +236,7 @@ export class ClientSessions implements ISessions {
       restored.subagentAddress,
     )
     this.list = createSnapshotStore<SessionListState>({
-      ids: [], byId: {}, current: undefined, phase: 'pending',
+      ids: [], byId: {}, current: undefined, state: 'idle', error: null, phase: 'pending',
       subagentsByParent: {}, jobsBySession: {}, currentAddress: undefined,
     })
     // The manager owns wire truth; the store is its projection. Manager
@@ -576,7 +580,7 @@ export class ClientSessions implements ISessions {
   /** Project the manager's list snapshot into the store (title derivation is display-only). */
   private projectList(): void {
     const {
-      items, current, phase, subagentsByParent, jobsBySession, currentAddress,
+      items, current, state, error, phase, subagentsByParent, jobsBySession, currentAddress,
     } = this.manager.getListSnapshot()
     const ids: SessionId[] = []
     const byId: Record<SessionId, SessionSummary> = {}
@@ -642,7 +646,9 @@ export class ClientSessions implements ISessions {
         ...(currentAddress === undefined ? {} : { subagentAddress: currentAddress }),
       })
     }
-    this.list.set({ ids, byId, current, phase, subagentsByParent, jobsBySession, currentAddress })
+    this.list.set({
+      ids, byId, current, state, error, phase, subagentsByParent, jobsBySession, currentAddress,
+    })
     this.pruneScopes()
   }
 
